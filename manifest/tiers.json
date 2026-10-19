@@ -31,20 +31,20 @@
   },
   "studio-4x-h100": {
     "provider": "scaleway",
-    "repo": "zai-org/GLM-5.3-Flash",
-    "sha": "46a050bec13002ad29ee795c16e61cf4fa3c4a9c",
+    "repo": "Qwen/Qwen3-235B-A22B-FP8",
+    "sha": "39eb2b067ea6b8e3e1dd97d3cd0c7ffeaf3e1a35",
     "engine": "vllm/vllm-openai:v0.31.0",
     "served_context": 131072,
     "gpus": 4,
     "gpu_model": "H100",
     "tp_size": 4
   },
-  "mistral-large-4": {
+  "deepseek-v4-flash": {
     "provider": "scaleway",
-    "repo": "mistralai/Mistral-Large-4",
-    "sha": null,
+    "repo": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+    "sha": "1bae0e1088993b9b82de08f59de5be5a34e42170",
     "engine": "vllm/vllm-openai:v0.31.0",
-    "served_context": 262144,
+    "served_context": 1048576,
     "gpus": 8,
     "gpu_model": "H100",
     "tp_size": 8
