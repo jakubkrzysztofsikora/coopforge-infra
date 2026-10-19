@@ -85,6 +85,8 @@ EOF
 
   [[ -f $NODE_DIR/vllm.service ]] ||
     fail "$NODE_DIR/vllm.service is missing — BOOTSTRAP copies it from systemd/vllm.service"
+  [[ $SERVED_MODEL_NAME =~ ^[A-Za-z0-9._-]+$ ]] ||
+    fail "SERVED_MODEL_NAME='$SERVED_MODEL_NAME' is not a plain model id — it is substituted into the unit file"
   sed -e "s|@TIER@|$TIER|g" \
     -e "s|@NODE_DIR@|$NODE_DIR|g" \
     -e "s|@ENGINE@|$ENGINE|g" \

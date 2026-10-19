@@ -68,6 +68,7 @@ process.stdout.write(
       sha: manifest.sha,
       engine: manifest.engine,
       served_context: manifest.served_context,
+      route: manifest.route,
       gpus: manifest.gpus,
       gpu_model: manifest.gpu_model,
       tp_size: manifest.tp_size,

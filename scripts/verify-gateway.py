@@ -120,6 +120,10 @@ for tier in tiers:
         continue
     facts = tier_facts(tier)
     check(
+        facts.get("route") == tiers[tier].get("route"),
+        f"{tier}: tier-facts route {facts.get('route')} == tiers.json route {tiers[tier].get('route')}",
+    )
+    check(
         entry.get("tpm") == facts["tpm_cap_per_member"],
         f"{tier}: tpm {entry.get('tpm')} == tpm_cap_per_member {facts['tpm_cap_per_member']}",
     )
@@ -151,7 +155,7 @@ for name in sorted(model_tiers):
     )
 
 for entry in gateway["model_list"]:
-    route = entry["model_name"]
+    route = entry.get("model_name")
     params = entry.get("litellm_params") or {}
     check(params.get("model") == f"openai/{route}",
           f"{route}: the engine is asked for the name the route is named ({params.get('model')})")

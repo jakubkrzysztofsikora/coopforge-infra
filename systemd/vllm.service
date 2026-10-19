@@ -16,7 +16,6 @@ ExecStart=/usr/bin/docker run --rm --name coopforge-vllm \
   --max-model-len @SERVED_CONTEXT@ \
   --tensor-parallel-size @TP_SIZE@ \
   --attention-backend FLASH_ATTN \
-  --kv-cache-dtype fp8 \
   --enable-prefix-caching \
   --enable-chunked-prefill \
   --gpu-memory-utilization 0.92

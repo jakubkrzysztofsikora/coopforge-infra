@@ -81,13 +81,13 @@ section 8).
 
 ## 4. Verify serving
 
-On the box (or over SSH), the engine answers on port 8000 under the tier id as
-its model name:
+On the box (or over SSH), the engine answers on port 8000 under the tier's
+gateway route as its model name (here `everyday-96g` → `qwen3.6-35b-a3b`):
 
 ```bash
 curl -fsS http://<ip>:8000/health
 curl -fsS http://<ip>:8000/v1/chat/completions -H 'Content-Type: application/json' \
-  -d '{"model":"everyday-96g","messages":[{"role":"user","content":"say hi"}],"max_tokens":16}'
+  -d '{"model":"qwen3.6-35b-a3b","messages":[{"role":"user","content":"say hi"}],"max_tokens":16}'
 curl -fsS http://<ip>:8000/metrics | grep -E '^vllm:(num_requests_running|kv_cache_usage_perc)'
 ```
 
