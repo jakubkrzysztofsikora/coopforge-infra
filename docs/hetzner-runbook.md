@@ -14,6 +14,8 @@ decision is a monthly one.
 | Tier specs, seat price, caps, provider | `coopforge/web/lib/coop-rules.ts` (`SPECS`) |
 | Serving manifest (repo, sha, engine, context, gpus) | `manifest/tiers.json` |
 | Per-member gateway budgets | `manifest/gateway.yaml` (`per_tier_budgets`) |
+| Mesh membership and per-node weight | `manifest/gateway.yaml` (`mesh.nodes`) |
+| Mesh liveness: registered nodes and health | `state/gateway-nodes.json` (`mesh.registry`, gitignored — rotation writes here, never the manifest) |
 | Robot API contract and rate limits | `docs/spikes/robot-api.md` |
 | Unattended install details | `docs/spikes/install-image.md` |
 | Engine image and driver requirement | `docs/spikes/vllm-sm120.md` |
@@ -60,6 +62,11 @@ Completed stages are recorded in `state/hetzner/<tier>.env`, so a re-run resumes
 instead of re-ordering. Exit codes name the stage that failed: 10 ORDER,
 11 INSTALL, 12 BOOTSTRAP, 13 MODEL_PULL, 14 REGISTER.
 
+REGISTER writes the box into the gateway mesh — `scripts/gateway-mesh.py
+register --tier <tier> --server <n> --ip <ip>` records it in
+`state/gateway-nodes.json`, so the tier is only served once provisioning has
+registered the node. A node that is not in the registry serves nothing.
+
 Timings for the live stages are unmeasured — no box has been ordered yet (see
 section 8).
 
@@ -87,6 +94,7 @@ npx tsc --noEmit
 
 # coopforge-infra
 scripts/verify-gateway.py
+scripts/gateway-mesh.py status          # served set per tier, from the registry
 docker compose --env-file .env.example config -q
 bash -n scripts/hetzner-lib.sh scripts/hetzner-provision.sh scripts/hetzner-node-bootstrap.sh scripts/hetzner-teardown.sh
 shellcheck -S warning scripts/hetzner-lib.sh scripts/hetzner-provision.sh scripts/hetzner-node-bootstrap.sh scripts/hetzner-teardown.sh
@@ -168,9 +176,14 @@ scripts/hetzner-teardown.sh --yes --force --server 1234567 --ip 10.0.0.1 seed-24
   ordering, the `installimage` run, bootstrap, model pull, registration, a
   successful SSH deregister and a real cancellation have not been run end to end.
   Order/install/bootstrap timings stay unmeasured until the first box.
-- **Health-check rotation needs a live node.** Node health and rotation are not
-  represented in `manifest/gateway.yaml`; they can only be observed on a running
-  node (`/health`, `vllm:num_requests_running`, the status-agent heartbeat).
+- **Health-check rotation is unexercised on a live node.** Rotation is
+  implemented — `scripts/gateway-mesh.py check` probes `mesh.health_check.path`
+  every `interval_seconds` and drops a node after `failures_before_rotation`
+  consecutive failures — and `scripts/verify-gateway.py` asserts the served set
+  against a stubbed probe. No box has been registered yet, so a real `/health`
+  failure has never rotated a node out, and the timing between probe and gateway
+  removal is unmeasured. Nothing schedules `check` either: it is run by hand
+  until the gateway side has a timer for it.
 - **Driver floor.** The engine pin `vllm/vllm-openai:v0.31.0` needs host driver
   R580+; the fallback tag `v0.31.0-cu129` needs R575.51.03+.
 
@@ -181,6 +194,9 @@ scripts/hetzner-teardown.sh --yes --force --server 1234567 --ip 10.0.0.1 seed-24
   cancelled with `--server N` (no address needed).
 - **Teardown without fallback capacity** takes the tier's coops offline. The
   script requires `--force` for that; the fallback table is section 6.
+- **An unhealthy node keeps its share until `check` runs.** Rotation is not
+  automatic: `scripts/gateway-mesh.py check` is what drops a failed node, so a
+  box that dies between runs keeps receiving its share of the tier's traffic.
 - **Seat price drift.** Changing `recommended_member_quota` or
   `monthly_cost_override_cents` moves the seat price. `scripts/verify-tiers.ts`
   pins the current values.

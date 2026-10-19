@@ -332,6 +332,11 @@ stage_register() {
     log "REGISTER already done"
     return 0
   fi
+  local node_id
+  node_id=$(python3 "$SCRIPT_DIR/gateway-mesh.py" register \
+    --tier "$SLUG" --server "$SERVER_NUMBER" --ip "$SERVER_IP" --ssh-port "$SSH_PORT") ||
+    die 14 "could not register $SLUG in the gateway mesh"
+  log "mesh: $node_id"
   scp_to "$HETZNER_ROOT/status-agent.sh" /opt/coopforge/status-agent.sh || die 14 "could not copy status-agent.sh"
   run_node_stage register register 14
 }
@@ -385,7 +390,8 @@ BOOTSTRAP  scp  hetzner-node-bootstrap.sh -> $REMOTE_BOOTSTRAP
            ssh  bootstrap                                     # driver 580, nvidia-container-toolkit, Docker
            scp  systemd/vllm.service -> /opt/coopforge/vllm.service
 MODEL_PULL ssh  model-pull                                    # render coopforge-vllm.service + docker run $(fact .engine), wait for /health
-REGISTER   scp  status-agent.sh -> /opt/coopforge/status-agent.sh
+REGISTER   mesh register $SLUG                                # gateway.yaml mesh node, weight from the manifest
+           scp  status-agent.sh -> /opt/coopforge/status-agent.sh
            ssh  register                                      # systemd timer, heartbeat (skipped without COOPFORGE_STATUS_PUSH_URL)
 
 Then:    scripts/hetzner-teardown.sh $SLUG

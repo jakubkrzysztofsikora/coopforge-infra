@@ -22,21 +22,18 @@ model_list:
       model: "openai/Qwen3.8-27B"
       api_base: "http://vllm:8000/v1"
       api_key: "not-required"
-  - model_name: "deepseek-v4.1-flash"
-    litellm_params:
-      model: "openai/DeepSeek-V4.1-Flash"
-      api_base: "http://vllm:8000/v1"
-      api_key: "not-required"
   - model_name: "glm-5.3-flash"
     litellm_params:
       model: "openai/GLM-5.3-Flash"
       api_base: "http://vllm:8000/v1"
       api_key: "not-required"
-  - model_name: "glm-5.3"
-    litellm_params:
-      model: "openai/GLM-5.3"
-      api_base: "http://vllm:8000/v1"
-      api_key: "not-required"
+
+# The tiers each route serves, keyed by model_name. A route with no tier has no
+# box to run it, so it is a stale route and not a tier that has yet to ship.
+model_tiers:
+  qwen3.6-35b-a3b: ["everyday-fr-l40s", "pro-fr-2x-l40s", "everyday-96g"]
+  qwen3.8-27b: ["power-h100"]
+  glm-5.3-flash: ["studio-4x-h100"]
 
 router_settings:
   routing_strategy: "usage-based-routing-v2"  # DRR
@@ -63,8 +60,6 @@ general_settings:
 # lib/coop-rules.ts SPECS. `tpm` is `tpm_cap_per_member`, `parallelism` is
 # `concurrency_per_member`. Burst is 2x steady-state; refill is linear over the
 # month. Generated into keys by key-signer from coops D1.
-# Node health and rotation are not represented here: a live node is required to
-# observe them (see docs/hetzner-runbook.md).
 per_tier_budgets:
   everyday-fr-l40s: { tpm: 120000, rpm: 60, burst: 2.0, parallelism: 3 }
   pro-fr-2x-l40s:   { tpm: 150000, rpm: 60, burst: 2.0, parallelism: 4 }
@@ -73,3 +68,28 @@ per_tier_budgets:
   mistral-large-4:  { tpm: 150000, rpm: 60, burst: 2.0, parallelism: 4 }
   seed-24g:         { tpm: 120000, rpm: 60, burst: 2.0, parallelism: 3 }
   everyday-96g:     { tpm: 150000, rpm: 60, burst: 2.0, parallelism: 4 }
+
+# Mesh membership: one node is one box serving one tier, and `weight` is the
+# share of that tier's traffic it carries against its in-service peers. A node
+# joins the mesh when provisioning registers it and leaves it when
+# `failures_before_rotation` consecutive probes of `health_check.path` fail —
+# liveness lives in `registry` (gitignored), so rotation never edits this file.
+# `endpoint` is the address the gateway routes to; a registered node's own
+# address takes precedence while it is in service, so a re-provisioned box
+# needs no manifest edit either.
+mesh:
+  registry: "state/gateway-nodes.json"
+  health_check:
+    path: "/health"
+    interval_seconds: 30
+    timeout_seconds: 5
+    failures_before_rotation: 3
+  nodes:
+    - id: "seed-24g-01"
+      tier: "seed-24g"
+      endpoint: "http://seed-24g-01:8000"
+      weight: 1
+    - id: "everyday-96g-01"
+      tier: "everyday-96g"
+      endpoint: "http://everyday-96g-01:8000"
+      weight: 1
