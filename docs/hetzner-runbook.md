@@ -62,6 +62,15 @@ Completed stages are recorded in `state/hetzner/<tier>.env`, so a re-run resumes
 instead of re-ordering. Exit codes name the stage that failed: 10 ORDER,
 11 INSTALL, 12 BOOTSTRAP, 13 MODEL_PULL, 14 REGISTER.
 
+`ROBOT_USER`, `ROBOT_WS_PASSWORD`, `SSH_KEY`, `IMAGE`, `HETZNER_LOCATION` and the
+status-push trio come from the environment. `COOP_SLUG` is the coop's platform
+slug (`coops.slug` — `slugify(title)` plus a uniqueness suffix, e.g.
+`glm53-flash-studio-coop-1`), never the tier id: the box sends it to
+`/api/status-push`, which resolves the coop by slug, so a tier id rejects every
+sample. It is forwarded to the box with `COOPFORGE_STATUS_PUSH_URL` and
+`COOPFORGE_STATUS_TOKEN`; REGISTER refuses to install the heartbeat when the
+push pair is set and `COOP_SLUG` is not.
+
 REGISTER writes the box into the gateway mesh — `scripts/gateway-mesh.py
 register --tier <tier> --server <n> --ip <ip>` records it in
 `state/gateway-nodes.json`, so the tier is only served once provisioning has
@@ -79,7 +88,7 @@ its model name:
 curl -fsS http://<ip>:8000/health
 curl -fsS http://<ip>:8000/v1/chat/completions -H 'Content-Type: application/json' \
   -d '{"model":"everyday-96g","messages":[{"role":"user","content":"say hi"}],"max_tokens":16}'
-curl -fsS http://<ip>:8000/metrics | grep -E '^vllm:(num_requests_running|gpu_cache_usage_perc)'
+curl -fsS http://<ip>:8000/metrics | grep -E '^vllm:(num_requests_running|kv_cache_usage_perc)'
 ```
 
 Repo-side checks, all green as of the last change:
@@ -94,10 +103,11 @@ npx tsc --noEmit
 
 # coopforge-infra
 scripts/verify-gateway.py
+scripts/verify-provision-env.sh        # COOP_SLUG wiring + the register stage
 scripts/gateway-mesh.py status          # served set per tier, from the registry
 docker compose --env-file .env.example config -q
-bash -n scripts/hetzner-lib.sh scripts/hetzner-provision.sh scripts/hetzner-node-bootstrap.sh scripts/hetzner-teardown.sh
-shellcheck -S warning scripts/hetzner-lib.sh scripts/hetzner-provision.sh scripts/hetzner-node-bootstrap.sh scripts/hetzner-teardown.sh
+bash -n scripts/hetzner-lib.sh scripts/hetzner-provision.sh scripts/hetzner-node-bootstrap.sh scripts/hetzner-teardown.sh scripts/verify-provision-env.sh
+shellcheck -S warning scripts/hetzner-lib.sh scripts/hetzner-provision.sh scripts/hetzner-node-bootstrap.sh scripts/hetzner-teardown.sh scripts/verify-provision-env.sh
 ```
 
 ## 5. Monthly cost reconciliation

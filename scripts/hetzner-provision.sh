@@ -48,7 +48,10 @@ Environment:
   HETZNER_LOCATION                preferred location, e.g. FSN1 or NBG1
   SSH_KEY                         public key registered in Robot and installed
   IMAGE                           installimage image name
-  COOPFORGE_STATUS_PUSH_URL, COOPFORGE_STATUS_TOKEN, COOP_SLUG
+  COOPFORGE_STATUS_PUSH_URL, COOPFORGE_STATUS_TOKEN
+                                  status push endpoint and shared token
+  COOP_SLUG                       the coop's platform slug (coops.slug), not the
+                                  tier id; required once the COOPFORGE_STATUS_* pair is set
   ROBOT_API, STATE_DIR, ORDER_TIMEOUT, INSTALL_TIMEOUT, MODEL_TIMEOUT, POLL_INTERVAL
 
 Exit codes: 2 usage, 10 ORDER, 11 INSTALL, 12 BOOTSTRAP, 13 MODEL_PULL, 14 REGISTER.
@@ -299,6 +302,7 @@ run_node_stage() {
   env_prefix="TIER='$SLUG' REPO='$(fact .repo)' SHA='$sha' ENGINE='$(fact .engine)'"
   env_prefix+=" SERVED_CONTEXT='$(fact .served_context)' TP_SIZE='$(fact .tp_size)' MODEL_TIMEOUT='$MODEL_TIMEOUT'"
   env_prefix+=" COOPFORGE_STATUS_PUSH_URL='${COOPFORGE_STATUS_PUSH_URL:-}' COOPFORGE_STATUS_TOKEN='${COOPFORGE_STATUS_TOKEN:-}'"
+  env_prefix+=" COOP_SLUG='${COOP_SLUG:-}'"
   ssh_run "env $env_prefix bash $REMOTE_BOOTSTRAP $node_stage" ||
     die "$code" "$node_stage failed on the server"
   mark_done "$provision_stage"
@@ -331,6 +335,9 @@ stage_register() {
   if stage_done register; then
     log "REGISTER already done"
     return 0
+  fi
+  if [[ -n ${COOPFORGE_STATUS_PUSH_URL:-} && -n ${COOPFORGE_STATUS_TOKEN:-} && -z ${COOP_SLUG:-} ]]; then
+    die 14 "COOP_SLUG is required when the COOPFORGE_STATUS_* pair is set: pass the coop's platform slug (coops.slug), not the tier id '$SLUG'"
   fi
   local node_id
   node_id=$(python3 "$SCRIPT_DIR/gateway-mesh.py" register \
@@ -392,7 +399,7 @@ BOOTSTRAP  scp  hetzner-node-bootstrap.sh -> $REMOTE_BOOTSTRAP
 MODEL_PULL ssh  model-pull                                    # render coopforge-vllm.service + docker run $(fact .engine), wait for /health
 REGISTER   mesh register $SLUG                                # gateway.yaml mesh node, weight from the manifest
            scp  status-agent.sh -> /opt/coopforge/status-agent.sh
-           ssh  register                                      # systemd timer, heartbeat (skipped without COOPFORGE_STATUS_PUSH_URL)
+           ssh  register                                      # systemd timer, heartbeat (skipped without COOPFORGE_STATUS_PUSH_URL; COOP_SLUG required)
 
 Then:    scripts/hetzner-teardown.sh $SLUG
 Cancel:  POST $API/server/{n}/cancellation with cancellation_date >= earliest_cancellation_date

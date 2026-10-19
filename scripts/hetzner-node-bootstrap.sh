@@ -7,7 +7,9 @@
 #   register    install the status agent and push one heartbeat
 #
 # Environment: TIER REPO SHA ENGINE SERVED_CONTEXT TP_SIZE
-#              COOPFORGE_STATUS_PUSH_URL COOPFORGE_STATUS_TOKEN (register only)
+#              COOPFORGE_STATUS_PUSH_URL COOPFORGE_STATUS_TOKEN COOP_SLUG (register only)
+#              COOP_SLUG is the coop's platform slug (coops.slug), never the tier
+#              id: /api/status-push resolves the coop by slug.
 set -Eeuo pipefail
 
 readonly STAGE=${1:?usage: hetzner-node-bootstrap.sh <bootstrap|model-pull|register>}
@@ -18,7 +20,9 @@ readonly SHA=${SHA:-}
 readonly SERVED_CONTEXT=${SERVED_CONTEXT:-131072}
 readonly TP_SIZE=${TP_SIZE:-1}
 readonly MODEL_TIMEOUT=${MODEL_TIMEOUT:-3600}
-readonly NODE_DIR=/opt/coopforge
+readonly COOP_SLUG=${COOP_SLUG:-}
+readonly NODE_DIR=${NODE_DIR:-/opt/coopforge}
+readonly SYSTEMD_DIR=${SYSTEMD_DIR:-/etc/systemd/system}
 readonly UNIT=coopforge-vllm.service
 
 stage_code() {
@@ -84,7 +88,7 @@ EOF
     -e "s|@REVISION@|$revision|g" \
     -e "s|@SERVED_CONTEXT@|$SERVED_CONTEXT|g" \
     -e "s|@TP_SIZE@|$TP_SIZE|g" \
-    "$NODE_DIR/vllm.service" >"/etc/systemd/system/$UNIT" ||
+    "$NODE_DIR/vllm.service" >"$SYSTEMD_DIR/$UNIT" ||
     fail "could not render $UNIT from $NODE_DIR/vllm.service"
 
   systemctl daemon-reload || fail "systemctl daemon-reload failed"
@@ -108,9 +112,12 @@ stage_register() {
     echo "stage=$STAGE skipped: COOPFORGE_STATUS_PUSH_URL / COOPFORGE_STATUS_TOKEN are not set"
     return 0
   fi
+  if [[ -z $COOP_SLUG ]]; then
+    fail "COOP_SLUG is not set: pass the coop's platform slug (coops.slug), not the tier id '$TIER'"
+  fi
   [[ -f $NODE_DIR/status-agent.sh ]] || fail "$NODE_DIR/status-agent.sh is missing"
 
-  cat >"/etc/systemd/system/coopforge-status.service" <<EOF
+  cat >"$SYSTEMD_DIR/coopforge-status.service" <<EOF
 [Unit]
 Description=CoopForge status heartbeat for tier $TIER
 After=network-online.target
@@ -119,11 +126,11 @@ After=network-online.target
 Type=oneshot
 Environment=COOPFORGE_STATUS_PUSH_URL=$COOPFORGE_STATUS_PUSH_URL
 Environment=COOPFORGE_STATUS_TOKEN=$COOPFORGE_STATUS_TOKEN
-Environment=COOP_SLUG=$TIER
+Environment=COOP_SLUG=$COOP_SLUG
 ExecStart=/bin/sh $NODE_DIR/status-agent.sh
 EOF
 
-  cat >"/etc/systemd/system/coopforge-status.timer" <<EOF
+  cat >"$SYSTEMD_DIR/coopforge-status.timer" <<EOF
 [Unit]
 Description=CoopForge status heartbeat timer
 
