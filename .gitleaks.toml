@@ -1,0 +1,18 @@
+title = "coopforge-infra"
+
+[extend]
+useDefault = true
+
+# curl-auth-user fires on the Robot credentials the scripts print in their closing
+# instructions: curl -u "$ROBOT_USER:$ROBOT_WS_PASSWORD". Those are shell variable
+# references, not credentials, so the allowlist needs both the path and the
+# variable-reference shape on the same line.
+[[rules]]
+id = "curl-auth-user"
+
+  [[rules.allowlists]]
+  description = "Robot credentials in printed instructions are shell variable references, never literals"
+  condition = "AND"
+  paths = ['''scripts/hetzner-(provision|teardown)\.sh$''']
+  regexTarget = "line"
+  regexes = ['''curl -u "\\\$[A-Za-z_][A-Za-z0-9_]*:\\\$[A-Za-z_][A-Za-z0-9_]*"''']

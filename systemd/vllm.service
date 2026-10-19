@@ -1,0 +1,22 @@
+[Unit]
+Description=CoopForge vLLM backend for tier @TIER@
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Restart=always
+RestartSec=15
+ExecStartPre=-/usr/bin/docker rm -f coopforge-vllm
+ExecStart=/usr/bin/docker run --rm --name coopforge-vllm \
+  --gpus all --ipc=host -p 8000:8000 \
+  -v @NODE_DIR@/hf:/root/.cache/huggingface \
+  @ENGINE@ \
+  --model @REPO@ @REVISION@ \
+  --served-model-name @TIER@ \
+  --max-model-len @SERVED_CONTEXT@ \
+  --tensor-parallel-size @TP_SIZE@ \
+  --attention-backend FLASH_ATTN
+ExecStop=/usr/bin/docker stop coopforge-vllm
+
+[Install]
+WantedBy=multi-user.target

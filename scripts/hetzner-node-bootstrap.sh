@@ -3,7 +3,7 @@
 # over SSH, one stage per call:
 #
 #   bootstrap   install the NVIDIA driver, the container toolkit and Docker
-#   model-pull  write and start the vLLM unit, wait for /health
+#   model-pull  render systemd/vllm.service into the unit, start it, wait for /health
 #   register    install the status agent and push one heartbeat
 #
 # Environment: TIER REPO SHA ENGINE SERVED_CONTEXT TP_SIZE
@@ -75,30 +75,17 @@ EOF
   local revision=
   if [[ -n $SHA ]]; then revision="--revision $SHA"; fi
 
-  cat >"/etc/systemd/system/$UNIT" <<EOF
-[Unit]
-Description=CoopForge vLLM backend for tier $TIER
-After=docker.service network-online.target
-Requires=docker.service
-
-[Service]
-Restart=always
-RestartSec=15
-ExecStartPre=-/usr/bin/docker rm -f coopforge-vllm
-ExecStart=/usr/bin/docker run --rm --name coopforge-vllm \\
-  --gpus all --ipc=host -p 8000:8000 \\
-  -v $NODE_DIR/hf:/root/.cache/huggingface \\
-  $ENGINE \\
-  --model $REPO $revision \\
-  --served-model-name $TIER \\
-  --max-model-len $SERVED_CONTEXT \\
-  --tensor-parallel-size $TP_SIZE \\
-  --attention-backend FLASH_ATTN
-ExecStop=/usr/bin/docker stop coopforge-vllm
-
-[Install]
-WantedBy=multi-user.target
-EOF
+  [[ -f $NODE_DIR/vllm.service ]] ||
+    fail "$NODE_DIR/vllm.service is missing — BOOTSTRAP copies it from systemd/vllm.service"
+  sed -e "s|@TIER@|$TIER|g" \
+    -e "s|@NODE_DIR@|$NODE_DIR|g" \
+    -e "s|@ENGINE@|$ENGINE|g" \
+    -e "s|@REPO@|$REPO|g" \
+    -e "s|@REVISION@|$revision|g" \
+    -e "s|@SERVED_CONTEXT@|$SERVED_CONTEXT|g" \
+    -e "s|@TP_SIZE@|$TP_SIZE|g" \
+    "$NODE_DIR/vllm.service" >"/etc/systemd/system/$UNIT" ||
+    fail "could not render $UNIT from $NODE_DIR/vllm.service"
 
   systemctl daemon-reload || fail "systemctl daemon-reload failed"
   systemctl enable --now "$UNIT" || fail "could not start $UNIT"

@@ -312,6 +312,8 @@ stage_bootstrap() {
   fi
   scp_to "$SCRIPT_DIR/hetzner-node-bootstrap.sh" "$REMOTE_BOOTSTRAP" || die 12 "could not copy the node script"
   run_node_stage bootstrap bootstrap 12
+  scp_to "$HETZNER_ROOT/systemd/vllm.service" /opt/coopforge/vllm.service ||
+    die 12 "could not copy the vLLM unit"
 }
 
 stage_model_pull() {
@@ -381,7 +383,8 @@ INSTALL    POST $API/boot/{n}/rescue (os=linux, key)          # one-boot rescue,
                                                              # reboot, wait for SSH again
 BOOTSTRAP  scp  hetzner-node-bootstrap.sh -> $REMOTE_BOOTSTRAP
            ssh  bootstrap                                     # driver 580, nvidia-container-toolkit, Docker
-MODEL_PULL ssh  model-pull                                    # coopforge-vllm.service + docker run $(fact .engine), wait for /health
+           scp  systemd/vllm.service -> /opt/coopforge/vllm.service
+MODEL_PULL ssh  model-pull                                    # render coopforge-vllm.service + docker run $(fact .engine), wait for /health
 REGISTER   scp  status-agent.sh -> /opt/coopforge/status-agent.sh
            ssh  register                                      # systemd timer, heartbeat (skipped without COOPFORGE_STATUS_PUSH_URL)
 
