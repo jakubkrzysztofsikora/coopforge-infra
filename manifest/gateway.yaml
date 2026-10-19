@@ -14,17 +14,27 @@
 model_list:
   - model_name: "qwen3.6-35b-a3b"
     litellm_params:
-      model: "openai/Qwen3.6-35B-A3B"
+      model: "openai/qwen3.6-35b-a3b"
       api_base: "http://vllm:8000/v1"
       api_key: "not-required"
   - model_name: "qwen3.8-27b"
     litellm_params:
-      model: "openai/Qwen3.8-27B"
+      model: "openai/qwen3.8-27b"
       api_base: "http://vllm:8000/v1"
       api_key: "not-required"
-  - model_name: "glm-5.3-flash"
+  - model_name: "qwen3-235b"
     litellm_params:
-      model: "openai/GLM-5.3-Flash"
+      model: "openai/qwen3-235b"
+      api_base: "http://vllm:8000/v1"
+      api_key: "not-required"
+  - model_name: "qwen3-coder-30b-a3b"
+    litellm_params:
+      model: "openai/qwen3-coder-30b-a3b"
+      api_base: "http://vllm:8000/v1"
+      api_key: "not-required"
+  - model_name: "deepseek-v4-flash"
+    litellm_params:
+      model: "openai/deepseek-v4-flash"
       api_base: "http://vllm:8000/v1"
       api_key: "not-required"
 
@@ -33,7 +43,9 @@ model_list:
 model_tiers:
   qwen3.6-35b-a3b: ["everyday-fr-l40s", "pro-fr-2x-l40s", "everyday-96g"]
   qwen3.8-27b: ["power-h100"]
-  glm-5.3-flash: ["studio-4x-h100"]
+  qwen3-235b: ["studio-4x-h100"]
+  qwen3-coder-30b-a3b: ["seed-24g"]
+  deepseek-v4-flash: ["deepseek-v4-flash"]
 
 router_settings:
   routing_strategy: "usage-based-routing-v2"  # DRR
@@ -64,10 +76,10 @@ per_tier_budgets:
   everyday-fr-l40s: { tpm: 120000, rpm: 60, burst: 2.0, parallelism: 3 }
   pro-fr-2x-l40s:   { tpm: 150000, rpm: 60, burst: 2.0, parallelism: 4 }
   power-h100:       { tpm: 150000, rpm: 60, burst: 2.0, parallelism: 4 }
-  studio-4x-h100:   { tpm: 150000, rpm: 60, burst: 2.0, parallelism: 4 }
-  mistral-large-4:  { tpm: 150000, rpm: 60, burst: 2.0, parallelism: 4 }
+  studio-4x-h100:   { tpm: 50000,  rpm: 60, burst: 2.0, parallelism: 1 }
   seed-24g:         { tpm: 120000, rpm: 60, burst: 2.0, parallelism: 3 }
   everyday-96g:     { tpm: 150000, rpm: 60, burst: 2.0, parallelism: 4 }
+  deepseek-v4-flash: { tpm: 100000, rpm: 60, burst: 2.0, parallelism: 2 }
 
 # Mesh membership: one node is one box serving one tier, and `weight` is the
 # share of that tier's traffic it carries against its in-service peers. A node

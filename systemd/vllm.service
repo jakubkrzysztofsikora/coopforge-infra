@@ -12,10 +12,14 @@ ExecStart=/usr/bin/docker run --rm --name coopforge-vllm \
   -v @NODE_DIR@/hf:/root/.cache/huggingface \
   @ENGINE@ \
   --model @REPO@ @REVISION@ \
-  --served-model-name @TIER@ \
+  --served-model-name @SERVED_MODEL_NAME@ \
   --max-model-len @SERVED_CONTEXT@ \
   --tensor-parallel-size @TP_SIZE@ \
-  --attention-backend FLASH_ATTN
+  --attention-backend FLASH_ATTN \
+  --kv-cache-dtype fp8 \
+  --enable-prefix-caching \
+  --enable-chunked-prefill \
+  --gpu-memory-utilization 0.92
 ExecStop=/usr/bin/docker stop coopforge-vllm
 
 [Install]

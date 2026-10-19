@@ -300,7 +300,8 @@ run_node_stage() {
   sha=$(fact .sha)
   if [[ $sha == null ]]; then sha=; fi
   env_prefix="TIER='$SLUG' REPO='$(fact .repo)' SHA='$sha' ENGINE='$(fact .engine)'"
-  env_prefix+=" SERVED_CONTEXT='$(fact .served_context)' TP_SIZE='$(fact .tp_size)' MODEL_TIMEOUT='$MODEL_TIMEOUT'"
+  env_prefix+=" SERVED_MODEL_NAME='$(fact .route)' SERVED_CONTEXT='$(fact .served_context)'"
+  env_prefix+=" TP_SIZE='$(fact .tp_size)' MODEL_TIMEOUT='$MODEL_TIMEOUT'"
   env_prefix+=" COOPFORGE_STATUS_PUSH_URL='${COOPFORGE_STATUS_PUSH_URL:-}' COOPFORGE_STATUS_TOKEN='${COOPFORGE_STATUS_TOKEN:-}'"
   env_prefix+=" COOP_SLUG='${COOP_SLUG:-}'"
   ssh_run "env $env_prefix bash $REMOTE_BOOTSTRAP $node_stage" ||

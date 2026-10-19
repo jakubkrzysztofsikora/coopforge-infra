@@ -59,7 +59,8 @@ register_case() { # register_case <push-url> <token> <coop-slug>
   RC=0
   OUT=$(env PATH="$work/bin:$PATH" \
     NODE_DIR="$work/node" SYSTEMD_DIR="$work/systemd" \
-    TIER="$TIER_FIXTURE" REPO=Qwen/Qwen3.6-35B-A3B-FP8 ENGINE=vllm/vllm-openai:v0.31.0 \
+    TIER="$TIER_FIXTURE" REPO=Qwen/Qwen3.6-35B-A3B-FP8 SERVED_MODEL_NAME=qwen3.6-35b-a3b \
+    ENGINE=vllm/vllm-openai:v0.31.0 \
     COOPFORGE_STATUS_PUSH_URL="$1" COOPFORGE_STATUS_TOKEN="$2" COOP_SLUG="$3" \
     bash "$BOOTSTRAP" register 2>&1) || RC=$?
 }
@@ -109,6 +110,20 @@ check "the provision env list mentions COOP_SLUG" "$(yesno grep -q COOP_SLUG <<<
 check "the provision env list calls COOP_SLUG the platform slug" "$(yesno grep -qE 'COOP_SLUG.*slug' <<<"$env_list")" yes
 check "run_node_stage forwards COOP_SLUG to the node" "$(yesno grep -qE 'env_prefix.*COOP_SLUG' "$PROVISION")" yes
 check "the REGISTER stage refuses a missing COOP_SLUG" "$(yesno grep -q 'COOP_SLUG is required' "$PROVISION")" yes
+
+# (e) the engine answers to its gateway route name, never to the tier id: a
+# request the gateway routes as qwen3.6-35b-a3b reaches a box serving
+# --served-model-name qwen3.6-35b-a3b, so the two names have to be the same one.
+unrouted=$(python3 -c 'import json,sys,yaml; tiers=json.load(open(sys.argv[1])); routes={m["model_name"] for m in yaml.safe_load(open(sys.argv[2]))["model_list"]}; print(",".join(k for k,t in tiers.items() if t.get("route") not in routes))' "$TIERS" "$GATEWAY")
+check "every manifest tier names a gateway route" "$unrouted" ""
+check "the vLLM unit takes the served name from the manifest route" \
+  "$(yesno grep -q -- '--served-model-name @SERVED_MODEL_NAME@' "$ROOT/systemd/vllm.service")" yes
+check "the vLLM unit never serves the tier id" \
+  "$(yesno grep -q -- '--served-model-name @TIER@' "$ROOT/systemd/vllm.service")" no
+check "run_node_stage forwards SERVED_MODEL_NAME to the node" \
+  "$(yesno grep -qE 'env_prefix.*SERVED_MODEL_NAME' "$PROVISION")" yes
+check "a node stage without SERVED_MODEL_NAME is refused" \
+  "$(yesno grep -q 'SERVED_MODEL_NAME is required' "$BOOTSTRAP")" yes
 
 printf '\n%d/%d checks passed\n' "$((checks - ${#failures[@]}))" "$checks"
 if ((${#failures[@]})); then

@@ -150,6 +150,20 @@ for name in sorted(model_tiers):
         f"{name}: {' + '.join(served_tiers) or 'no tier'}",
     )
 
+for entry in gateway["model_list"]:
+    route = entry["model_name"]
+    params = entry.get("litellm_params") or {}
+    check(params.get("model") == f"openai/{route}",
+          f"{route}: the engine is asked for the name the route is named ({params.get('model')})")
+
+covered = {tier for served in model_tiers.values() for tier in served}
+check(covered == set(tiers), f"every tier has a route ({sorted(set(tiers) - covered)} unrouted)")
+
+for tier, spec in tiers.items():
+    route = spec.get("route")
+    check(route in model_names, f"{tier}: serves the route {route}")
+    check(tier in (model_tiers.get(route) or []), f"{tier}: {route} declares it")
+
 mesh = gateway.get("mesh") or {}
 nodes = mesh.get("nodes") or []
 policy = mesh.get("health_check") or {}

@@ -7,6 +7,8 @@
 #   register    install the status agent and push one heartbeat
 #
 # Environment: TIER REPO SHA ENGINE SERVED_CONTEXT TP_SIZE
+#              SERVED_MODEL_NAME is the gateway route the engine answers to:
+#              a request naming any other model must not be served here.
 #              COOPFORGE_STATUS_PUSH_URL COOPFORGE_STATUS_TOKEN COOP_SLUG (register only)
 #              COOP_SLUG is the coop's platform slug (coops.slug), never the tier
 #              id: /api/status-push resolves the coop by slug.
@@ -17,6 +19,7 @@ readonly TIER=${TIER:?TIER is required}
 readonly REPO=${REPO:?REPO is required}
 readonly ENGINE=${ENGINE:?ENGINE is required}
 readonly SHA=${SHA:-}
+readonly SERVED_MODEL_NAME=${SERVED_MODEL_NAME:?SERVED_MODEL_NAME is required}
 readonly SERVED_CONTEXT=${SERVED_CONTEXT:-131072}
 readonly TP_SIZE=${TP_SIZE:-1}
 readonly MODEL_TIMEOUT=${MODEL_TIMEOUT:-3600}
@@ -72,6 +75,7 @@ TIER=$TIER
 REPO=$REPO
 SHA=$SHA
 ENGINE=$ENGINE
+SERVED_MODEL_NAME=$SERVED_MODEL_NAME
 SERVED_CONTEXT=$SERVED_CONTEXT
 TP_SIZE=$TP_SIZE
 EOF
@@ -85,6 +89,7 @@ EOF
     -e "s|@NODE_DIR@|$NODE_DIR|g" \
     -e "s|@ENGINE@|$ENGINE|g" \
     -e "s|@REPO@|$REPO|g" \
+    -e "s|@SERVED_MODEL_NAME@|$SERVED_MODEL_NAME|g" \
     -e "s|@REVISION@|$revision|g" \
     -e "s|@SERVED_CONTEXT@|$SERVED_CONTEXT|g" \
     -e "s|@TP_SIZE@|$TP_SIZE|g" \
