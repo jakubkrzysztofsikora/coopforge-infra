@@ -1,0 +1,77 @@
+services:
+  vllm:
+    image: vllm/vllm-openai:v0.31.0
+    restart: unless-stopped
+    ports: ["8000:8000"]
+    volumes: ["./manifest:/manifest:ro", "${HF_CACHE:-/srv/hf}:/root/.cache/huggingface"]
+    environment:
+      NCCL_SOCKET_IFNAME: eth0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: >
+      --model ${MODEL_REPO}
+      --revision ${MODEL_SHA}
+      --max-model-len ${SERVED_CONTEXT:-256000}
+      --served-model-name ${SERVED_MODEL_NAME:-vllm-model}
+      --tensor-parallel-size ${TP_SIZE:-1}
+      --gpu-memory-utilization ${GPU_MEM_UTIL:-0.92}
+      --enable-prefix-caching
+      --kv-cache-dtype fp8
+      --max-num-batched-tokens ${BATCHED_TOKENS:-2048}
+      --enable-chunked-prefill
+      --max-num-seqs ${MAX_SEQS:-16}
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    restart: unless-stopped
+    ports: ["4000:4000"]
+    volumes:
+      - ./manifest/gateway.yaml:/app/config.yaml:ro
+      - litellm_data:/app/data
+    environment:
+      DATABASE_URL: "postgresql://litellm:litellm@litellm-db:5432/litellm"
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?set in .env}
+      LITELLM_LOG: "INFO"
+      STORE_MODEL_IN_DB: "True"
+    depends_on:
+      litellm-db:
+        condition: service_healthy
+
+  litellm-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: litellm
+      POSTGRES_DB: litellm
+    volumes:
+      - litellm_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm -d litellm"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  key-signer:
+    image: python:3.12-slim
+    restart: unless-stopped
+    entrypoint: ["python", "/app/signer.py"]
+    volumes:
+      - ./manifest:/app/manifest:ro
+      - signer_data:/app/data
+    environment:
+      LITELLM_URL: "http://litellm:4000"
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      SYNC_INTERVAL_SECONDS: "60"
+      COOPFORGE_API: ${COOPFORGE_API:?set to https://coopforge.eu}
+      COOPFORGE_API_KEY: ${COOPFORGE_API_KEY:?set in .env}
+
+volumes:
+  litellm_data:
+  litellm_pg:
+  signer_data:

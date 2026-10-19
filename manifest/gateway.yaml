@@ -1,0 +1,75 @@
+# LiteLLM gateway configuration.
+# Per-member token-bucket + DRR scheduling. Re-rendered every 60s by
+# key-signer from the coops D1 database, so caps always match reality.
+#
+# Routing strategy:
+#   - All members of a coop hit /v1/chat/completions on the gateway.
+#   - The gateway forwards to the single vLLM backend for that coop's tier.
+#   - Per-key rpm/tpm caps enforce the coop's per-member fair-share.
+#   - DRR balances across members so one heavy user can't starve the rest.
+#
+# Per-tier per-member budgets are derived from total throughput / member_quota
+# (see lib/coop-rules.ts defaultFairUse), so caps are honest, not aspirational.
+
+model_list:
+  - model_name: "qwen3.6-35b-a3b"
+    litellm_params:
+      model: "openai/Qwen3.6-35B-A3B"
+      api_base: "http://vllm:8000/v1"
+      api_key: "not-required"
+  - model_name: "qwen3.8-27b"
+    litellm_params:
+      model: "openai/Qwen3.8-27B"
+      api_base: "http://vllm:8000/v1"
+      api_key: "not-required"
+  - model_name: "deepseek-v4.1-flash"
+    litellm_params:
+      model: "openai/DeepSeek-V4.1-Flash"
+      api_base: "http://vllm:8000/v1"
+      api_key: "not-required"
+  - model_name: "glm-5.3-flash"
+    litellm_params:
+      model: "openai/GLM-5.3-Flash"
+      api_base: "http://vllm:8000/v1"
+      api_key: "not-required"
+  - model_name: "glm-5.3"
+    litellm_params:
+      model: "openai/GLM-5.3"
+      api_base: "http://vllm:8000/v1"
+      api_key: "not-required"
+
+router_settings:
+  routing_strategy: "usage-based-routing-v2"  # DRR
+  num_retries: 1
+  timeout: 600
+  enable_caching: false  # agentic traffic is rarely cacheable
+  caching_groups: []
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false
+  telemetry: false
+  success_callback: ["prometheus"]
+  failure_callback: ["prometheus"]
+  service_callbacks: ["prometheus"]
+
+general_settings:
+  database_url: "postgresql://litellm:litellm@litellm-db:5432/litellm"
+  master_key: "os.environ/LITELLM_MASTER_KEY"
+  proxy_batch_write_at: 5
+  disable_spend_logs: false
+
+# Per-tier per-member caps (tokens per minute), keyed by tier id from
+# lib/coop-rules.ts SPECS. `tpm` is `tpm_cap_per_member`, `parallelism` is
+# `concurrency_per_member`. Burst is 2x steady-state; refill is linear over the
+# month. Generated into keys by key-signer from coops D1.
+# Node health and rotation are not represented here: a live node is required to
+# observe them (see docs/hetzner-runbook.md).
+per_tier_budgets:
+  everyday-fr-l40s: { tpm: 120000, rpm: 60, burst: 2.0, parallelism: 3 }
+  pro-fr-2x-l40s:   { tpm: 150000, rpm: 60, burst: 2.0, parallelism: 4 }
+  power-h100:       { tpm: 150000, rpm: 60, burst: 2.0, parallelism: 4 }
+  studio-4x-h100:   { tpm: 150000, rpm: 60, burst: 2.0, parallelism: 4 }
+  mistral-large-4:  { tpm: 150000, rpm: 60, burst: 2.0, parallelism: 4 }
+  seed-24g:         { tpm: 120000, rpm: 60, burst: 2.0, parallelism: 3 }
+  everyday-96g:     { tpm: 150000, rpm: 60, burst: 2.0, parallelism: 4 }
