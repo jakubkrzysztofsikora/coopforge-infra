@@ -1,0 +1,60 @@
+# Serving stack for the single-seat CPU test tier.
+#
+# Same shape as the GPU tiers (docker-compose.yml): a gateway in front of the
+# engine, so a member gets an OpenAI-compatible endpoint and a real gateway key
+# rather than raw access to the model server. The difference is the engine:
+# Ollama on CPU instead of vLLM on a GPU.
+services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    # Compose network only: members reach the model through the gateway, never
+    # directly, so a leaked host port cannot bypass per-key rate limits.
+    expose: ["11434"]
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    restart: unless-stopped
+    # Loopback only: the tunnel connector runs on this host and reaches the
+    # gateway over 127.0.0.1, so the plaintext port never needs to face the
+    # internet. Members use the HTTPS tunnel endpoint.
+    ports: ["127.0.0.1:4000:4000"]
+    volumes:
+      - ./litellm-config.yaml:/app/config.yaml:ro
+    environment:
+      DATABASE_URL: "postgresql://litellm:litellm@litellm-db:5432/litellm"
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?set in .env}
+      LITELLM_LOG: "INFO"
+      STORE_MODEL_IN_DB: "True"
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+      litellm-db:
+        condition: service_healthy
+
+  litellm-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: litellm
+      POSTGRES_DB: litellm
+    volumes:
+      - litellm_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm -d litellm"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  ollama_models:
+  litellm_pg:

@@ -1,0 +1,30 @@
+#cloud-config
+# Host prep only. The model server and the gateway are containers started later
+# by scaleway-test-provision.sh, so this does not install Ollama: two copies of
+# the model on one small disk would be pure waste.
+packages:
+  - curl
+  - jq
+
+ssh_authorized_keys:
+  - __SSH_PUBKEY__
+
+write_files:
+  - path: /etc/docker/daemon.json
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": { "max-size": "10m", "max-file": "3" }
+      }
+
+runcmd:
+  # Grow the root filesystem first: the image ships a small one, and a 4.5 GB
+  # model plus a Postgres volume will not fit otherwise. The device name differs
+  # by image, so both are tried.
+  - growpart /dev/vda 1 || growpart /dev/sda 1 || true
+  - resize2fs /dev/vda1 || resize2fs /dev/sda1 || true
+  - curl -fsSL https://get.docker.com | sh
+  - systemctl enable --now docker
+  # The provision script drives compose over ssh as the login user, so that user
+  # needs the docker group. Without it every compose call fails on the socket.
+  - usermod -aG docker ubuntu

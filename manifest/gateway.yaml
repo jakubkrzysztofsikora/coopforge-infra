@@ -16,27 +16,27 @@ model_list:
     litellm_params:
       model: "openai/qwen3.6-35b-a3b"
       api_base: "http://vllm:8000/v1"
-      api_key: "not-required"
+      api_key: "os.environ/VLLM_API_KEY"
   - model_name: "qwen3.8-27b"
     litellm_params:
       model: "openai/qwen3.8-27b"
       api_base: "http://vllm:8000/v1"
-      api_key: "not-required"
+      api_key: "os.environ/VLLM_API_KEY"
   - model_name: "qwen3-235b"
     litellm_params:
       model: "openai/qwen3-235b"
       api_base: "http://vllm:8000/v1"
-      api_key: "not-required"
-  - model_name: "qwen3-coder-30b-a3b"
+      api_key: "os.environ/VLLM_API_KEY"
+  - model_name: "mistral-7b-instruct"
     litellm_params:
-      model: "openai/qwen3-coder-30b-a3b"
+      model: "openai/mistral-7b-instruct"
       api_base: "http://vllm:8000/v1"
-      api_key: "not-required"
+      api_key: "os.environ/VLLM_API_KEY"
   - model_name: "deepseek-v4-flash"
     litellm_params:
       model: "openai/deepseek-v4-flash"
       api_base: "http://vllm:8000/v1"
-      api_key: "not-required"
+      api_key: "os.environ/VLLM_API_KEY"
 
 # The tiers each route serves, keyed by model_name. A route with no tier has no
 # box to run it, so it is a stale route and not a tier that has yet to ship.
@@ -44,7 +44,7 @@ model_tiers:
   qwen3.6-35b-a3b: ["everyday-fr-l40s", "pro-fr-2x-l40s", "everyday-96g"]
   qwen3.8-27b: ["power-h100"]
   qwen3-235b: ["studio-4x-h100"]
-  qwen3-coder-30b-a3b: ["seed-24g"]
+  mistral-7b-instruct: ["seed-24g"]
   deepseek-v4-flash: ["deepseek-v4-flash"]
 
 router_settings:
@@ -58,6 +58,7 @@ litellm_settings:
   drop_params: true
   set_verbose: false
   telemetry: false
+  turn_off_message_logging: true
   success_callback: ["prometheus"]
   failure_callback: ["prometheus"]
   service_callbacks: ["prometheus"]
@@ -67,6 +68,7 @@ general_settings:
   master_key: "os.environ/LITELLM_MASTER_KEY"
   proxy_batch_write_at: 5
   disable_spend_logs: false
+  store_prompts_in_spend_logs: false
 
 # Per-tier per-member caps (tokens per minute), keyed by tier id from
 # lib/coop-rules.ts SPECS. `tpm` is `tpm_cap_per_member`, `parallelism` is

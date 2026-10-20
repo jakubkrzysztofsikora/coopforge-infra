@@ -56,11 +56,11 @@
   },
   "seed-24g": {
     "provider": "hetzner",
-    "repo": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
-    "sha": null,
-    "route": "qwen3-coder-30b-a3b",
+    "repo": "solidrust/Mistral-7B-Instruct-v0.3-AWQ",
+    "sha": "95b1295ddd1a8673117cdc7bd2a4da2a457bb3f7",
+    "route": "mistral-7b-instruct",
     "engine": "vllm/vllm-openai:v0.31.0",
-    "served_context": 131072,
+    "served_context": 32768,
     "gpus": 1,
     "gpu_model": "RTX PRO 4000",
     "tp_size": 1
@@ -75,5 +75,16 @@
     "gpus": 1,
     "gpu_model": "RTX PRO 6000",
     "tp_size": 1
+  },
+  "test": {
+    "provider": "scaleway",
+    "repo": "speakleash/Bielik-Minitron-7B-v3.0-Instruct",
+    "sha": null,
+    "route": "bielik-minitron-7b",
+    "engine": "ollama/ollama:latest",
+    "served_context": 32768,
+    "gpus": 0,
+    "gpu_model": null,
+    "tp_size": null
   }
 }

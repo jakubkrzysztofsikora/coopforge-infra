@@ -9,6 +9,7 @@
 # Environment: TIER REPO SHA ENGINE SERVED_CONTEXT TP_SIZE
 #              SERVED_MODEL_NAME is the gateway route the engine answers to:
 #              a request naming any other model must not be served here.
+#              VLLM_API_KEY (model-pull only). Engine bearer. Not written into the unit.
 #              COOPFORGE_STATUS_PUSH_URL COOPFORGE_STATUS_TOKEN COOP_SLUG (register only)
 #              COOP_SLUG is the coop's platform slug (coops.slug), never the tier
 #              id: /api/status-push resolves the coop by slug.
@@ -98,8 +99,10 @@ EOF
     "$NODE_DIR/vllm.service" >"$SYSTEMD_DIR/$UNIT" ||
     fail "could not render $UNIT from $NODE_DIR/vllm.service"
 
+  : "${VLLM_API_KEY:?VLLM_API_KEY is required}"
+  (umask 077 && printf 'VLLM_API_KEY=%s\n' "$VLLM_API_KEY" >"$NODE_DIR/engine.key")
+
   systemctl daemon-reload || fail "systemctl daemon-reload failed"
-  systemctl enable --now "$UNIT" || fail "could not start $UNIT"
 
   local deadline=$((SECONDS + MODEL_TIMEOUT))
   while ((SECONDS < deadline)); do
@@ -124,6 +127,10 @@ stage_register() {
   fi
   [[ -f $NODE_DIR/status-agent.sh ]] || fail "$NODE_DIR/status-agent.sh is missing"
 
+  local env_file=$NODE_DIR/status.env
+  (umask 077; printf 'COOPFORGE_STATUS_TOKEN=%s\n' "$COOPFORGE_STATUS_TOKEN" >"$env_file")
+  chmod 600 "$env_file"
+
   cat >"$SYSTEMD_DIR/coopforge-status.service" <<EOF
 [Unit]
 Description=CoopForge status heartbeat for tier $TIER
@@ -132,7 +139,7 @@ After=network-online.target
 [Service]
 Type=oneshot
 Environment=COOPFORGE_STATUS_PUSH_URL=$COOPFORGE_STATUS_PUSH_URL
-Environment=COOPFORGE_STATUS_TOKEN=$COOPFORGE_STATUS_TOKEN
+EnvironmentFile=$env_file
 Environment=COOP_SLUG=$COOP_SLUG
 ExecStart=/bin/sh $NODE_DIR/status-agent.sh
 EOF

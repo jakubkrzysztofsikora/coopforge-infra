@@ -1,0 +1,34 @@
+# LiteLLM gateway for the single-seat CPU test tier.
+#
+# One route, backed by the box's own Ollama. The platform mints per-member keys
+# against this master key (coopforge/web/lib/gateway.ts), so the caps on those
+# keys are what a member actually gets.
+#
+# `model_name` is what members are told to use. `litellm_params.model` must be
+# the exact tag Ollama answers to: a short alias there yields a 404 from the
+# engine, not from litellm.
+model_list:
+  - model_name: "bielik-minitron-7b"
+    litellm_params:
+      model: "openai/SpeakLeash/bielik-minitron-7B-v3.0-instruct:Q4_K_M"
+      api_base: "http://ollama:11434/v1"
+      api_key: "not-required"
+
+router_settings:
+  num_retries: 1
+  # CPU inference is slow, and an agent may hold a connection across a long
+  # generation; a short timeout would kill legitimate work.
+  timeout: 900
+  enable_caching: false
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false
+  telemetry: false
+  turn_off_message_logging: true
+
+general_settings:
+  database_url: "postgresql://litellm:litellm@litellm-db:5432/litellm"
+  master_key: "os.environ/LITELLM_MASTER_KEY"
+  disable_spend_logs: false
+  store_prompts_in_spend_logs: false

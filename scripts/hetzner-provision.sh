@@ -88,16 +88,13 @@ done
   exit 2
 }
 
-# Tiers whose manifest model cannot load on their own GPU. seed-24g declares INT4
-# but points at the BF16 Qwen3-Coder-30B-A3B-Instruct (~61 GB) on a 24 GB card, and
-# no first-party INT4 artifact exists — refusing here beats downloading 61 GB to OOM.
+# Tiers whose manifest model cannot load on their own GPU. Empty today: seed-24g
+# was pointing at the BF16 repo (~61 GB) on a 24 GB card, and now points at an
+# AWQ INT4 artifact that fits. Keep this as the place to refuse a tier whose
+# manifest was edited to something that will not load — refusing beats
+# downloading tens of GB to OOM.
 model_blocker() {
-  case "$SLUG" in
-    seed-24g)
-      printf 'blocker B1: %s is BF16 (~61 GB) and does not fit %s GB of %s; no first-party INT4 artifact exists. Fix repo/sha in manifest/tiers.json first.\n' \
-        "$(fact .repo)" "$(fact .vram_gb)" "$(fact .instance)"
-      ;;
-  esac
+  :
 }
 
 ensure_key() {
@@ -307,6 +304,7 @@ run_node_stage() {
   env_prefix+=" TP_SIZE='$(fact .tp_size)' MODEL_TIMEOUT='$MODEL_TIMEOUT'"
   env_prefix+=" COOPFORGE_STATUS_PUSH_URL='${COOPFORGE_STATUS_PUSH_URL:-}' COOPFORGE_STATUS_TOKEN='${COOPFORGE_STATUS_TOKEN:-}'"
   env_prefix+=" COOP_SLUG='${COOP_SLUG:-}'"
+  env_prefix+=" VLLM_API_KEY='${VLLM_API_KEY:-}'"
   ssh_run "env $env_prefix bash $REMOTE_BOOTSTRAP $node_stage" ||
     die "$code" "$node_stage failed on the server"
   mark_done "$provision_stage"
