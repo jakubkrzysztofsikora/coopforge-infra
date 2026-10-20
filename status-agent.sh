@@ -169,6 +169,20 @@ print(json.dumps({
 '
 )
 
-curl -sfS -X POST "$COOPFORGE_STATUS_PUSH_URL" \
+RID=$(printf 'rid_%s_%s' "$(date -u +%Y%m%dT%H%M%S)" "$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')")
+
+HTTP_CODE=$(curl -sS -X POST "$COOPFORGE_STATUS_PUSH_URL" \
   -H 'Content-Type: application/json' \
-  -d "$PAYLOAD"
+  -H "x-request-id: $RID" \
+  -d "$PAYLOAD" \
+  -o /tmp/status-push-resp.json \
+  -w '%{http_code}') || HTTP_CODE=000
+
+if [ "$HTTP_CODE" = "200" ]; then
+  printf '{"ts":"%s","level":"info","event":"status_push.sent","rid":"%s","coop_slug":"%s","uptime_ok":%s}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$RID" "$COOP_SLUG" "$UPTIME_OK"
+else
+  printf '{"ts":"%s","level":"error","event":"status_push.failed","rid":"%s","coop_slug":"%s","http_code":"%s","body":"%s"}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$RID" "$COOP_SLUG" "$HTTP_CODE" "$(head -c 300 /tmp/status-push-resp.json 2>/dev/null | tr -d '\n')" >&2
+  exit 1
+fi
