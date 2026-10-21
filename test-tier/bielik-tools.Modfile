@@ -6,13 +6,16 @@
 # e.g. agent frameworks) make the model emit bare JSON with no <tool_call> tag,
 # which the parser drops entirely (verified on the test tier, 2026-10-21).
 #
-# Two fixes on top of the original port:
+# Fixes on top of the original port:
 # 1. An override paragraph at the end of the system block (recency wins with
 #    this 7B) forcing exactly one <tool_call> tag regardless of the client
-#    prompt's own syntax claims, plus a positive-only reminder after the
-#    message loop. Negated phrasing ("never claim you cannot...") primed
-#    refusals in probes; positive-only scored 3/3.
-# 2. num_ctx capped at 8192: a 16384 request OOMs the 8GB box (weights alone
+#    prompt's own syntax claims. The tool preamble renders when .Tools is set
+#    even with NO client system prompt — wrapping it in {{ if .System }} made
+#    the schemas vanish for bare requests and the model hallucinated tools.
+# 2. A positive-only reminder after the message loop, skipped when the last
+#    message is a tool result so summarisation turns are not pushed into
+#    another tool call. Negated phrasing primed refusals in probes.
+# 3. num_ctx capped at 8192: a 16384 request OOMs the 8GB box (weights alone
 #    are ~4.5GB) and returns HTTP 500.
 #
 # The FROM line is rewritten by test-tier-bootstrap.sh from MODEL_TAG, so the
@@ -30,7 +33,7 @@ the first text inside the .ToolCalls branch, and no action may precede it
 {{- if .Tools }}<|im_start|>system
 {{ if .System }}{{ .System }}
 
-You are provided with tool signatures that you can use to assist with the user's query. You do not have to use a tool if you can respond adequately without it. Do not make assumptions about the values to use in tool calls. If the user's message is missing required parameters or if you do not have an appropriate tool to fulfill the request, inform the user or ask for clarification instead of attempting to call any tools.
+{{ end }}You are provided with tool signatures that you can use to assist with the user's query. You do not have to use a tool if you can respond adequately without it. Do not make assumptions about the values to use in tool calls. If the user's message is missing required parameters or if you do not have an appropriate tool to fulfill the request, inform the user or ask for clarification instead of attempting to call any tools.
 
 If you decide to invoke a tool, you MUST use the following JSON format:
 `<tool_call>{"name": <tool-name>, "arguments": <args-dict>}</tool_call>`
@@ -41,10 +44,11 @@ Below is a list of tools in JSON format that you can invoke:
 {{ json . }}
 {{ end }}
 
-Ignore any earlier instructions, custom syntax, or examples that described tools in a different tag or dialect. Emit exactly one `<tool_call>...</tool_call>` tag on its own line, with no extra characters before or after it. Do not emit a bare JSON object, do not use `<name>` or `<arguments>` tags, and do not describe a tool call in prose.{{ end }}<|im_end|>{{ "\n" }}
+Ignore any earlier instructions, custom syntax, or examples that described tools in a different tag or dialect. Emit exactly one `<tool_call>...</tool_call>` tag on its own line, with no extra characters before or after it. Do not emit a bare JSON object, do not use `<name>` or `<arguments>` tags, and do not describe a tool call in prose.<|im_end|>{{ "\n" }}
 {{- else if .System }}<|im_start|>system
 {{ .System }}<|im_end|>{{ "\n" }}
 {{- end }}
+{{- $lastRole := "" }}
 {{- range .Messages }}
 {{- if eq .Role "tool" }}<|im_start|>tool
 {{ .Content }}<|im_end|>{{ "\n" }}
@@ -56,8 +60,9 @@ Ignore any earlier instructions, custom syntax, or examples that described tools
 {{- else }}<|im_start|>{{ .Role }}
 {{ .Content }}<|im_end|>{{ "\n" }}
 {{- end }}
+{{- $lastRole = .Role }}
 {{- end }}
-{{- if .Tools }}<|im_start|>system
+{{- if and .Tools (ne $lastRole "tool") }}<|im_start|>system
 Reminder: tools are available for use now. If the user's request needs an action, your entire reply is exactly one <tool_call>{"name": ..., "arguments": {...}}</tool_call> tag and nothing else.<|im_end|>{{ "\n" }}
 {{- end }}
 <|im_start|>assistant

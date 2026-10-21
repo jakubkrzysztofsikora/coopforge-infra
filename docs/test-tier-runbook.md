@@ -97,6 +97,11 @@ left behind and reported.
 ## Known limits
 
 - **~6.5 tok/s.** CPU-only. Usable for testing, not for real coding work.
+- **History is silently truncated at ~4k tokens.** `num_ctx` is capped at 8192
+  (16384 OOMs the 8 GB box), and the system prompt, tool schemas and template
+  overrides consume roughly half of it; Ollama drops the oldest messages beyond
+  that. Long agent sessions lose early tool results — clients should re-supply
+  anything critical.
 - **The tier's `duty` is unmeasured.** Every seat-count claim in the tier table
   depends on it; see the "Seat capacity" section of the infra README.
 - **No load test on the GPU tiers.** Their capacity figures are arithmetic from

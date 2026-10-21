@@ -34,7 +34,26 @@ LITELLM_CONFIG = TIER / "litellm-config.yaml"
 BOOTSTRAP = TIER / "test-tier-bootstrap.sh"
 
 GATEWAY_URL_DEFAULT = "http://127.0.0.1:4000"
-LIVE_MODEL = "bielik-minitron-7b"
+
+TOOL = {
+    "type": "function",
+    "function": {
+        "name": "run_command",
+        "description": "Run a shell command and return its output.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "command": {"type": "string", "description": "The command to run."}
+            },
+            "required": ["command"],
+        },
+    },
+}
+SYSTEM_PROMPT = (
+    "You are a coding agent. When an action is needed, call the "
+    "run_command tool with {\"command\": string}. Check the python "
+    "version now."
+)
 
 # The tag Bielik v3.0 was trained to emit, and the one speakleash/bielik-tools
 # uses in its advanced chat template.
@@ -62,67 +81,126 @@ def modfile_template(text: str) -> str:
     return match.group(1) if match else ""
 
 
-def live_check(gateway_url: str, api_key: str | None) -> None:
-    """Send a tool request through the gateway; the response must carry tool_calls."""
-    body = json.dumps({
-        "model": LIVE_MODEL,
-        "temperature": 0.1,
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You are a coding agent. When an action is needed, call the "
-                    "run_command tool with {\"command\": string}. Check the python "
-                    "version now."
-                ),
-            },
-            {"role": "user", "content": "Check the python version."},
-        ],
-        "tools": [
-            {
-                "type": "function",
-                "function": {
-                    "name": "run_command",
-                    "description": "Run a shell command and return its output.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "command": {"type": "string", "description": "The command to run."}
-                        },
-                        "required": ["command"],
-                    },
-                },
-            }
-        ],
-        "tool_choice": "auto",
-    }).encode()
+def model_name() -> str:
+    """Read the Bielik model name from the LiteLLM config, fail if absent."""
+    match = re.search(r'model_name:\s*"?([^"\s]+)"?', LITELLM_CONFIG.read_text(encoding="utf-8"))
+    return match.group(1) if match else "bielik-minitron-7b"
 
+
+def post(gateway_url: str, api_key: str | None, body: dict) -> dict | None:
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     req = urllib.request.Request(
         f"{gateway_url.rstrip('/')}/v1/chat/completions",
-        data=body,
+        data=json.dumps(body).encode(),
         headers=headers,
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=180) as resp:
-            payload = json.loads(resp.read().decode())
+        with urllib.request.urlopen(req, timeout=600) as resp:
+            return json.loads(resp.read().decode())
     except Exception as exc:  # noqa: BLE001
         check("live gateway request", False, str(exc))
-        return
+        return None
 
-    text = json.dumps(payload)
-    has_calls = '"tool_calls"' in text
-    check(
-        "live gateway returns structured tool_calls",
-        has_calls,
-        "model answered without a structured tool call; template regression or wrong model",
-    )
-    if has_calls:
-        call = payload["choices"][0]["message"]["tool_calls"][0]["function"]
-        print(f"      tool: {call['name']}  args: {call['arguments']}")
+
+def message(payload: dict | None) -> dict:
+    if payload is None:
+        return {}
+    return payload["choices"][0]["message"]
+
+
+def structured_call(msg: dict, leak_check: bool = True) -> tuple[bool, str]:
+    calls = msg.get("tool_calls") or []
+    if not calls:
+        return False, "no structured tool_calls in the response"
+    if calls[0]["function"]["name"] != "run_command":
+        return False, f"wrong tool called: {calls[0]['function']['name']}"
+    if leak_check and ("<tool_call>" in (msg.get("content") or "") or "<name>" in (msg.get("content") or "")):
+        return False, "raw tool tag leaked into content"
+    return True, ""
+
+
+def live_check(gateway_url: str, api_key: str | None) -> None:
+    """Send tool requests through the gateway; the responses must be structured."""
+    model = model_name()
+
+    # Probe 1: agent-style system prompt — the historical failing shape.
+    # Probe 2: bare user turn with NO system message — the template must still
+    # render the tool preamble, or the model hallucinates tool names.
+    # Probe 3: multi-turn — after a tool result the model must summarise in
+    # prose, not fire another tool call.
+    probes = [
+        (
+            "agent system prompt yields structured tool_calls",
+            {
+                "model": model,
+                "temperature": 0.1,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": "Check the python version."},
+                ],
+                "tools": [TOOL],
+                "tool_choice": "auto",
+            },
+        ),
+        (
+            "bare user turn (no system prompt) yields structured tool_calls",
+            {
+                "model": model,
+                "temperature": 0.1,
+                "messages": [{"role": "user", "content": "Check the python version."}],
+                "tools": [TOOL],
+                "tool_choice": "auto",
+            },
+        ),
+        (
+            "after a tool result the model answers in prose",
+            {
+                "model": model,
+                "temperature": 0.1,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": "Check the python version."},
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "run_command",
+                                    "arguments": json.dumps({"command": "python --version"}),
+                                },
+                            }
+                        ],
+                    },
+                    {"role": "tool", "tool_call_id": "call_1", "content": "Python 3.14.0"},
+                    {"role": "user", "content": "Report the version you found."},
+                ],
+                "tools": [TOOL],
+                "tool_choice": "auto",
+            },
+        ),
+    ]
+
+    for name, body in probes:
+        payload = post(gateway_url, api_key, body)
+        msg = message(payload)
+        ok, detail = structured_call(msg)
+        if name.startswith("after a tool result"):
+            prose = (msg.get("content") or "").strip()
+            wants = bool(prose) and "3.14" in prose
+            check(name, wants, "empty content or version not summarised in prose" if not wants else "")
+            if wants:
+                print(f"      prose: {prose[:80]}")
+            continue
+        check(name, ok, detail)
+        if ok:
+            call = msg["tool_calls"][0]["function"]
+            print(f"      tool: {call['name']}  args: {call['arguments']}")
 
 
 def main() -> int:

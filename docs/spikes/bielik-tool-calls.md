@@ -68,7 +68,19 @@ claims. v4 (shipped) makes three changes to the upstream template:
 | v3 | v2 + final negated reminder ("do not claim the tool is unusable") | refusals — negated phrasing primed the failure it forbade |
 | v4 | v2 + positive-only reminder + num_ctx 8192 | all 3 cases (real-prompt-only, real-prompt+table, table-only) → `tool_calls=1`, args `{"command":"python --version"}`, zero leaks |
 
-Known gap, accepted: a bare user turn with NO system prompt at all can still make the
+### v5: bare-prompt root cause fixed
+
+The "known gap" below was misdiagnosed. A bare user turn with no system prompt does not
+make the model ramble — it makes the template drop the tool schemas: the whole preamble,
+tool list and override paragraph sat inside `{{ if .System }}`, so with `.System` empty the
+rendered system turn was empty and the model invented tools it was never shown. v5 moves
+the conditional to wrap only the client prompt text (`{{ if .System }}{{ .System }}\n\n{{ end }}You are
+provided with tool signatures…`), and the post-loop reminder now skips when the last
+message is a tool result so summarisation turns are not pushed into another tool call.
+All three cases — agent system prompt, bare user turn, post-tool-result summarisation —
+verified live; 20/20 replays of the agent-shaped request stayed structured and leak-free.
+
+Known gap, historical (fixed by v5): a bare user turn with NO system prompt at all made the
 model ramble in prose about a hallucinated tool ("there's a tool called python_version…").
 Real traffic always carries an agent system prompt (that was the failing case this spike
 fixed); the live gate and the bootstrap smoke both send one, matching real usage.

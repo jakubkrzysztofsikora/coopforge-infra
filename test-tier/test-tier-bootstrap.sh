@@ -86,18 +86,9 @@ stage_up() {
   # Behavioural gate: the template fix only matters if a client prompt that
   # historically produced bare JSON (agent-style system prompt) now yields a
   # structured tool_calls field. Runs through the gateway, not raw Ollama,
-  # because the LiteLLM transform was part of the failure surface.
-  local smoke
-  smoke=$(curl -fsS -m 120 "$GATEWAY_URL/v1/chat/completions" \
-    -H 'Content-Type: application/json' \
-    -d '{"model":"bielik-minitron-7b","temperature":0.1,"messages":[{"role":"system","content":"You are a coding agent. When an action is needed, call the run_command tool with {\"command\": string}. Check the python version now."},{"role":"user","content":"Check the python version."}],"tools":[{"type":"function","function":{"name":"run_command","description":"Run a shell command","parameters":{"type":"object","properties":{"command":{"type":"string"}},"required":["command"]}}}]}' 2>/dev/null) ||
-    fail "tool-call smoke request failed"
-  printf '%s' "$smoke" | grep -q '"tool_calls"' ||
-    fail "tool-call smoke: no structured tool_calls in gateway response"
-  echo "stage=up ok: tool-call smoke passed"
-
-  # /health/liveliness is the unauthenticated probe; /health requires the master
-  # key and returns 401 without it, so asserting on /health would always fail.
+  # because the LiteLLM transform was part of the failure surface. Kept after
+  # the health loop: a restart can finish the pull loop while LiteLLM is still
+  # migrating its DB. Authenticated — the gateway 401s anonymous requests.
   deadline=$((SECONDS + 600))
   while ((SECONDS < deadline)); do
     curl -fsS -m 5 "$GATEWAY_URL/health/liveliness" >/dev/null 2>&1 && break
@@ -106,6 +97,18 @@ stage_up() {
   curl -fsS -m 5 "$GATEWAY_URL/health/liveliness" >/dev/null 2>&1 ||
     fail "litellm never became healthy on $GATEWAY_URL"
   echo "stage=up ok: gateway healthy on $GATEWAY_URL"
+
+  local smoke key
+  key=$(grep -E '^LITELLM_MASTER_KEY=' "$TIER_DIR/.env" | cut -d= -f2- | tr -d '"')
+  [[ -n $key ]] || fail "LITELLM_MASTER_KEY missing from $TIER_DIR/.env"
+  smoke=$(curl -fsS -m 600 "$GATEWAY_URL/v1/chat/completions" \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: Bearer $key" \
+    -d '{"model":"bielik-minitron-7b","temperature":0.1,"messages":[{"role":"system","content":"You are a coding agent. When an action is needed, call the run_command tool with {\"command\": string}. Check the python version now."},{"role":"user","content":"Check the python version."}],"tools":[{"type":"function","function":{"name":"run_command","description":"Run a shell command","parameters":{"type":"object","properties":{"command":{"type":"string"}},"required":["command"]}}}]}' 2>/dev/null) ||
+    fail "tool-call smoke request failed"
+  printf '%s' "$smoke" | python3 -c 'import json,sys; calls=json.load(sys.stdin)["choices"][0]["message"].get("tool_calls") or []; sys.exit(0 if calls and calls[0]["function"]["name"]=="run_command" else 1)' ||
+    fail "tool-call smoke: no structured run_command tool_call in gateway response"
+  echo "stage=up ok: tool-call smoke passed"
 }
 
 stage_status() {

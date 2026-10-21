@@ -11,6 +11,7 @@ from real members. Everything else traces to tier hardware constants.
 
 from __future__ import annotations
 
+import argparse
 import json
 import random
 import sys
@@ -27,18 +28,17 @@ coop_sim = importlib.util.module_from_spec(_spec)
 sys.modules["coop_sim"] = coop_sim
 _spec.loader.exec_module(coop_sim)
 
-# kv_gb, kv_per_token_bytes, seats, service_s. Values mirror coop_sim.CONFIGS;
-# deepseek-v4-flash added here: 8x H100 640GB, 511GB MXFP4 weights, MLA cache
+# (kv_gb, kv_per_token_bytes, service_s) per tier, extended from coop_sim.CONFIGS
+# with the deepseek entry: 8x H100 640GB, 511GB MXFP4 weights, MLA cache
 # 61 layers x (512 latent + 64 rope) x 1 byte fp8 = 35136 B/token, same ~0.87
 # usable-KV fraction as the sibling tiers.
+DEEPSEEK = (112.0, 35136)
+
+SEATS = {**{t: c[2] for t, c in coop_sim.CONFIGS.items()}, "deepseek-v4-flash": 150}
+
 TIER_CONFIGS = {
-    "everyday-fr-l40s": (8.16, 10240, 60, 25.0),
-    "pro-fr-2x-l40s": (52.32, 10240, 90, 25.0),
-    "power-h100": (45.60, 32768, 80, 25.0),
-    "studio-4x-h100": (54.40, 96256, 120, 25.0),
-    "everyday-96g": (52.32, 10240, 80, 25.0),
-    "seed-24g": (4.08, 49152, 40, 25.0),
-    "deepseek-v4-flash": (112.0, 35136, 150, 25.0),
+    **{t: (c[0], c[1], c[3]) for t, c in coop_sim.CONFIGS.items()},
+    "deepseek-v4-flash": (*DEEPSEEK, 25.0),
 }
 
 PUBLIC_TIERS = [
@@ -50,16 +50,6 @@ PUBLIC_TIERS = [
     "seed-24g",
     "everyday-96g",
 ]
-
-SEATS = {
-    "everyday-fr-l40s": 60,
-    "pro-fr-2x-l40s": 90,
-    "power-h100": 80,
-    "studio-4x-h100": 120,
-    "deepseek-v4-flash": 150,
-    "seed-24g": 40,
-    "everyday-96g": 80,
-}
 
 DUTIES = (0.15, 0.40, 0.60)
 CONTEXTS = (8192, 32768)
@@ -83,7 +73,7 @@ def verdict(p95: float) -> str:
 def run() -> dict:
     out: dict = {"seed": SEED, "duties": list(DUTIES), "contexts": list(CONTEXTS), "tiers": {}}
     for tier in PUBLIC_TIERS:
-        kv_gb, per_tok, _cfg_seats, service_s = TIER_CONFIGS[tier]
+        kv_gb, per_tok, service_s = TIER_CONFIGS[tier]
         seats = SEATS[tier]
         capacity_tokens = int(kv_gb * 1024**3 / per_tok)
         entry: dict = {"seats": seats}
@@ -109,7 +99,17 @@ def run() -> dict:
 
 
 def main() -> None:
-    dest = Path(__file__).resolve().parents[2] / "coopforge/web/content/capacity-sim.json"
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument(
+        "--out",
+        type=Path,
+        default=Path(__file__).resolve().parents[2] / "coopforge/web/content/capacity-sim.json",
+        help="destination path (default repo sibling coopforge/web/content)",
+    )
+    args = ap.parse_args()
+    dest = args.out
+    if not dest.parent.is_dir():
+        sys.exit(f"destination directory does not exist: {dest.parent}")
     data = run()
     dest.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
     print(f"wrote {dest}")
