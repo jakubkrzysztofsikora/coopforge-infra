@@ -77,7 +77,8 @@ rendered system turn was empty and the model invented tools it was never shown. 
 the conditional to wrap only the client prompt text (`{{ if .System }}{{ .System }}\n\n{{ end }}You are
 provided with tool signatures…`), and the post-loop reminder now skips when the last
 message is a tool result so summarisation turns are not pushed into another tool call.
-All three cases — agent system prompt, bare user turn, post-tool-result summarisation —
+All four live-gate cases — agent system prompt, bare user turn, post-tool-result
+user turn, and the tool-result-final turn that exercises the reminder skip —
 verified live; 20/20 replays of the agent-shaped request stayed structured and leak-free.
 
 Known gap, historical (fixed by v5): a bare user turn with NO system prompt at all made the
