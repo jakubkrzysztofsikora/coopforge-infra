@@ -83,6 +83,19 @@ stage_up() {
   compose "exec -T ollama ollama list" 2>/dev/null | grep -q "${TOOLS_MODEL_TAG%%:*}" ||
     fail "model $TOOLS_MODEL_TAG never landed in the box's ollama"
 
+  # Behavioural gate: the template fix only matters if a client prompt that
+  # historically produced bare JSON (agent-style system prompt) now yields a
+  # structured tool_calls field. Runs through the gateway, not raw Ollama,
+  # because the LiteLLM transform was part of the failure surface.
+  local smoke
+  smoke=$(curl -fsS -m 120 "$GATEWAY_URL/v1/chat/completions" \
+    -H 'Content-Type: application/json' \
+    -d '{"model":"bielik-minitron-7b","temperature":0.1,"messages":[{"role":"system","content":"You are a coding agent. When an action is needed, call the run_command tool with {\"command\": string}. Check the python version now."},{"role":"user","content":"Check the python version."}],"tools":[{"type":"function","function":{"name":"run_command","description":"Run a shell command","parameters":{"type":"object","properties":{"command":{"type":"string"}},"required":["command"]}}}]}' 2>/dev/null) ||
+    fail "tool-call smoke request failed"
+  printf '%s' "$smoke" | grep -q '"tool_calls"' ||
+    fail "tool-call smoke: no structured tool_calls in gateway response"
+  echo "stage=up ok: tool-call smoke passed"
+
   # /health/liveliness is the unauthenticated probe; /health requires the master
   # key and returns 401 without it, so asserting on /health would always fail.
   deadline=$((SECONDS + 600))

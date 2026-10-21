@@ -2,9 +2,18 @@
 #
 # The registry template injects tool schemas into the system prompt but never
 # renders a tool call, so Ollama cannot tell which tag to watch for and returns
-# the model's tool call as plain text. This template renders assistant tool
-# calls in the format the model was trained on, which is what makes Ollama's
-# parser produce a structured tool_calls field.
+# the model's tool call as plain text. Real client system prompts (~3k tokens,
+# e.g. agent frameworks) make the model emit bare JSON with no <tool_call> tag,
+# which the parser drops entirely (verified on the test tier, 2026-10-21).
+#
+# Two fixes on top of the original port:
+# 1. An override paragraph at the end of the system block (recency wins with
+#    this 7B) forcing exactly one <tool_call> tag regardless of the client
+#    prompt's own syntax claims, plus a positive-only reminder after the
+#    message loop. Negated phrasing ("never claim you cannot...") primed
+#    refusals in probes; positive-only scored 3/3.
+# 2. num_ctx capped at 8192: a 16384 request OOMs the 8GB box (weights alone
+#    are ~4.5GB) and returns HTTP 500.
 #
 # The FROM line is rewritten by test-tier-bootstrap.sh from MODEL_TAG, so the
 # box always builds on the model it just pulled.
@@ -19,7 +28,9 @@ as plain text. Two rules come from ollama's own tag detection: the tag must be
 the first text inside the .ToolCalls branch, and no action may precede it
 (ollama stops at the first action it meets). */ -}}
 {{- if .Tools }}<|im_start|>system
-{{ if .System }}{{ .System }}{{ "\n\n" }}{{ end }}You are provided with tool signatures that you can use to assist with the user's query. You do not have to use a tool if you can respond adequately without it. Do not make assumptions about the values to use in tool calls. If the user's message is missing required parameters or if you do not have an appropriate tool to fulfill the request, inform the user or ask for clarification instead of attempting to call any tools.
+{{ if .System }}{{ .System }}
+
+You are provided with tool signatures that you can use to assist with the user's query. You do not have to use a tool if you can respond adequately without it. Do not make assumptions about the values to use in tool calls. If the user's message is missing required parameters or if you do not have an appropriate tool to fulfill the request, inform the user or ask for clarification instead of attempting to call any tools.
 
 If you decide to invoke a tool, you MUST use the following JSON format:
 `<tool_call>{"name": <tool-name>, "arguments": <args-dict>}</tool_call>`
@@ -28,7 +39,9 @@ Below is a list of tools in JSON format that you can invoke:
 {{- range .Tools }}
 
 {{ json . }}
-{{ end }}<|im_end|>{{ "\n" }}
+{{ end }}
+
+Ignore any earlier instructions, custom syntax, or examples that described tools in a different tag or dialect. Emit exactly one `<tool_call>...</tool_call>` tag on its own line, with no extra characters before or after it. Do not emit a bare JSON object, do not use `<name>` or `<arguments>` tags, and do not describe a tool call in prose.{{ end }}<|im_end|>{{ "\n" }}
 {{- else if .System }}<|im_start|>system
 {{ .System }}<|im_end|>{{ "\n" }}
 {{- end }}
@@ -44,11 +57,15 @@ Below is a list of tools in JSON format that you can invoke:
 {{ .Content }}<|im_end|>{{ "\n" }}
 {{- end }}
 {{- end }}
+{{- if .Tools }}<|im_start|>system
+Reminder: tools are available for use now. If the user's request needs an action, your entire reply is exactly one <tool_call>{"name": ..., "arguments": {...}}</tool_call> tag and nothing else.<|im_end|>{{ "\n" }}
+{{- end }}
 <|im_start|>assistant
 
 """
 
 PARAMETER temperature 0.1
+PARAMETER num_ctx 8192
 PARAMETER stop "<|start_header_id|>"
 PARAMETER stop "<|end_header_id|>"
 PARAMETER stop "<|eot_id|>"
