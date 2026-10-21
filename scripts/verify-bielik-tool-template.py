@@ -19,15 +19,22 @@ Run it when the test tier's serving template, model tag or route changes:
 
 from __future__ import annotations
 
+import argparse
+import json
+import os
 import pathlib
 import re
 import sys
+import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 TIER = ROOT / "test-tier"
 MODFILE = TIER / "bielik-tools.Modfile"
 LITELLM_CONFIG = TIER / "litellm-config.yaml"
 BOOTSTRAP = TIER / "test-tier-bootstrap.sh"
+
+GATEWAY_URL_DEFAULT = "http://127.0.0.1:4000"
+LIVE_MODEL = "bielik-minitron-7b"
 
 # The tag Bielik v3.0 was trained to emit, and the one speakleash/bielik-tools
 # uses in its advanced chat template.
@@ -55,7 +62,88 @@ def modfile_template(text: str) -> str:
     return match.group(1) if match else ""
 
 
+def live_check(gateway_url: str, api_key: str | None) -> None:
+    """Send a tool request through the gateway; the response must carry tool_calls."""
+    body = json.dumps({
+        "model": LIVE_MODEL,
+        "temperature": 0.1,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are a coding agent. When an action is needed, call the "
+                    "run_command tool with {\"command\": string}. Check the python "
+                    "version now."
+                ),
+            },
+            {"role": "user", "content": "Check the python version."},
+        ],
+        "tools": [
+            {
+                "type": "function",
+                "function": {
+                    "name": "run_command",
+                    "description": "Run a shell command and return its output.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "command": {"type": "string", "description": "The command to run."}
+                        },
+                        "required": ["command"],
+                    },
+                },
+            }
+        ],
+        "tool_choice": "auto",
+    }).encode()
+
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    req = urllib.request.Request(
+        f"{gateway_url.rstrip('/')}/v1/chat/completions",
+        data=body,
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            payload = json.loads(resp.read().decode())
+    except Exception as exc:  # noqa: BLE001
+        check("live gateway request", False, str(exc))
+        return
+
+    text = json.dumps(payload)
+    has_calls = '"tool_calls"' in text
+    check(
+        "live gateway returns structured tool_calls",
+        has_calls,
+        "model answered without a structured tool call; template regression or wrong model",
+    )
+    if has_calls:
+        call = payload["choices"][0]["message"]["tool_calls"][0]["function"]
+        print(f"      tool: {call['name']}  args: {call['arguments']}")
+
+
 def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument(
+        "--live",
+        action="store_true",
+        help="additionally send a tool request through the gateway and require tool_calls",
+    )
+    ap.add_argument(
+        "--gateway-url",
+        default=GATEWAY_URL_DEFAULT,
+        help=f"gateway base URL for --live (default {GATEWAY_URL_DEFAULT})",
+    )
+    ap.add_argument(
+        "--api-key",
+        default=os.environ.get("LITELLM_MASTER_KEY"),
+        help="gateway bearer key for --live (default $LITELLM_MASTER_KEY)",
+    )
+    args = ap.parse_args()
+
     if not MODFILE.exists():
         check("modfile exists", False, f"{MODFILE} is missing")
         return 1
@@ -122,6 +210,9 @@ def main() -> int:
             route.group(1) == tools_tag.group(1),
             f"route is {route.group(1)!r}, expected {tools_tag.group(1)!r}",
         )
+
+    if args.live:
+        live_check(args.gateway_url, args.api_key)
 
     if failed:
         print(f"\n{len(failed)} check(s) failed")

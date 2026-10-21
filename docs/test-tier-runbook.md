@@ -85,6 +85,12 @@ left behind and reported.
 - One command takes the box from nothing to a working HTTPS endpoint
 - The minted member key returns a completion over HTTPS
 - Tool calling works: the model emits a `get_weather` call with `{"city":"Paris"}`
+- Tool calling survives client prompts that teach a rival syntax: the v4 template
+  override (system-block paragraph + final positive reminder) forces a structured
+  `<tool_call>` even when the system prompt documents its own XML dialect. Trail and
+  probes: `docs/spikes/bielik-tool-calls.md`. Offline gate:
+  `scripts/verify-bielik-tool-template.py`; live gate adds `--live --api-key $KEY`
+  (run on the box; sends a tool request through the gateway and requires `tool_calls`)
 - Registration flips the coop `filled` → `active` and records the HTTPS endpoint
 - Teardown removes server, IP, volume, tunnel and DNS with no orphans
 
