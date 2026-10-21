@@ -277,6 +277,7 @@ stage_install_stack() {
     "$SCRIPT_DIR/../test-tier/docker-compose.yml" \
     "$SCRIPT_DIR/../test-tier/litellm-config.yaml" \
     "$SCRIPT_DIR/../test-tier/test-tier-bootstrap.sh" \
+    "$SCRIPT_DIR/../test-tier/bielik-tools.Modfile" \
     "$SSH_USER@$SERVER_IP:$TIER_DIR/" || die "could not copy the stack files"
 
   # The master key is a secret: write it over ssh, never into the repo or argv.

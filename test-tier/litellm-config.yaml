@@ -10,7 +10,7 @@
 model_list:
   - model_name: "bielik-minitron-7b"
     litellm_params:
-      model: "openai/SpeakLeash/bielik-minitron-7B-v3.0-instruct:Q4_K_M"
+      model: "openai/coopforge/bielik-minitron-7b-tools:Q4_K_M"
       api_base: "http://ollama:11434/v1"
       api_key: "not-required"
 

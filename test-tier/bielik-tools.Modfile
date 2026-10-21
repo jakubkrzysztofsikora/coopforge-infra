@@ -1,0 +1,54 @@
+# Bielik Minitron 7B v3.0 served with its native tool-call format.
+#
+# The registry template injects tool schemas into the system prompt but never
+# renders a tool call, so Ollama cannot tell which tag to watch for and returns
+# the model's tool call as plain text. This template renders assistant tool
+# calls in the format the model was trained on, which is what makes Ollama's
+# parser produce a structured tool_calls field.
+#
+# The FROM line is rewritten by test-tier-bootstrap.sh from MODEL_TAG, so the
+# box always builds on the model it just pulled.
+FROM SpeakLeash/bielik-minitron-7B-v3.0-instruct:Q4_K_M
+
+TEMPLATE """
+{{- /* Bielik v3.0 tool-calling template, ported from
+speakleash/bielik-tools tools/bielik_advanced_chat_template.jinja. The .ToolCalls
+branch is what lets Ollama find the tool-call tag the model was trained to
+emit; without it Ollama falls back to JSON mode and the tool call comes back
+as plain text. Two rules come from ollama's own tag detection: the tag must be
+the first text inside the .ToolCalls branch, and no action may precede it
+(ollama stops at the first action it meets). */ -}}
+{{- if .Tools }}<|im_start|>system
+{{ if .System }}{{ .System }}{{ "\n\n" }}{{ end }}You are provided with tool signatures that you can use to assist with the user's query. You do not have to use a tool if you can respond adequately without it. Do not make assumptions about the values to use in tool calls. If the user's message is missing required parameters or if you do not have an appropriate tool to fulfill the request, inform the user or ask for clarification instead of attempting to call any tools.
+
+If you decide to invoke a tool, you MUST use the following JSON format:
+`<tool_call>{"name": <tool-name>, "arguments": <args-dict>}</tool_call>`
+
+Below is a list of tools in JSON format that you can invoke:
+{{- range .Tools }}
+
+{{ json . }}
+{{ end }}<|im_end|>{{ "\n" }}
+{{- else if .System }}<|im_start|>system
+{{ .System }}<|im_end|>{{ "\n" }}
+{{- end }}
+{{- range .Messages }}
+{{- if eq .Role "tool" }}<|im_start|>tool
+{{ .Content }}<|im_end|>{{ "\n" }}
+{{- else if eq .Role "assistant" }}<|im_start|>assistant
+{{ if .ToolCalls }}{{ range .ToolCalls }}<tool_call>{"name": "{{ .Function.Name }}", "arguments": {{ json .Function.Arguments }}}</tool_call>
+{{ end }}{{ .Content }}<|im_end|>{{ "\n" }}
+{{ else }}{{ .Content }}<|im_end|>{{ "\n" }}
+{{ end }}
+{{- else }}<|im_start|>{{ .Role }}
+{{ .Content }}<|im_end|>{{ "\n" }}
+{{- end }}
+{{- end }}
+<|im_start|>assistant
+
+"""
+
+PARAMETER temperature 0.1
+PARAMETER stop "<|start_header_id|>"
+PARAMETER stop "<|end_header_id|>"
+PARAMETER stop "<|eot_id|>"

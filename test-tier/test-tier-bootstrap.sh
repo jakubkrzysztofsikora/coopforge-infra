@@ -11,6 +11,9 @@ set -Eeuo pipefail
 readonly STAGE=${1:?usage: test-tier-bootstrap.sh <up|status|down>}
 readonly TIER_DIR=${TIER_DIR:-/opt/coopforge/test-tier}
 readonly MODEL_TAG=${MODEL_TAG:-SpeakLeash/bielik-minitron-7B-v3.0-instruct:Q4_K_M}
+# The registry template cannot express Bielik's own tool-call format, so the
+# model is rebuilt from the Modfile next to this script.
+readonly TOOLS_MODEL_TAG=${TOOLS_MODEL_TAG:-coopforge/bielik-minitron-7b-tools:Q4_K_M}
 readonly GATEWAY_URL=${GATEWAY_URL:-http://127.0.0.1:4000}
 
 fail() { printf 'FAILED stage=%s: %s\n' "$STAGE" "$*" >&2; exit 1; }
@@ -64,6 +67,21 @@ stage_up() {
   done
   compose "exec -T ollama ollama list" 2>/dev/null | grep -q "${MODEL_TAG%%:*}" ||
     fail "model $MODEL_TAG never landed in the box's ollama"
+
+  # Rebuild the model with a template Ollama can parse. The registry template
+  # injects tool schemas but never renders a tool call, so Ollama does not know
+  # which tag to watch for and hands the caller the tool call as plain text.
+  [[ -f $TIER_DIR/bielik-tools.Modfile ]] || fail "$TIER_DIR/bielik-tools.Modfile is missing"
+  local modfile="/tmp/bielik-tools.Modfile"
+  sed "s|^FROM .*|FROM $MODEL_TAG|" "$TIER_DIR/bielik-tools.Modfile" > "$modfile"
+  local ollama_container
+  ollama_container=$(compose "ps -q ollama")
+  sg docker -c "docker cp '$modfile' '$ollama_container:/tmp/bielik-tools.Modfile'" ||
+    fail "could not copy the modfile into the ollama container"
+  compose "exec -T ollama ollama create $TOOLS_MODEL_TAG -f /tmp/bielik-tools.Modfile" ||
+    fail "tool-aware model creation failed"
+  compose "exec -T ollama ollama list" 2>/dev/null | grep -q "${TOOLS_MODEL_TAG%%:*}" ||
+    fail "model $TOOLS_MODEL_TAG never landed in the box's ollama"
 
   # /health/liveliness is the unauthenticated probe; /health requires the master
   # key and returns 401 without it, so asserting on /health would always fail.
