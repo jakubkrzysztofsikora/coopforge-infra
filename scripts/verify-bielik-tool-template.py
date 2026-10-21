@@ -82,9 +82,12 @@ def modfile_template(text: str) -> str:
 
 
 def model_name() -> str:
-    """Read the Bielik model name from the LiteLLM config, fail if absent."""
-    match = re.search(r'model_name:\s*"?([^"\s]+)"?', LITELLM_CONFIG.read_text(encoding="utf-8"))
-    return match.group(1) if match else "bielik-minitron-7b"
+    """Read the Bielik model name from the LiteLLM config."""
+    match = re.search(r'^\s*-\s*model_name:\s*"?([^"\s]+)"?', LITELLM_CONFIG.read_text(encoding="utf-8"), re.M)
+    if not match:
+        check("litellm config names the bielik route", False, f"no model_name entry in {LITELLM_CONFIG}")
+        return "bielik-minitron-7b"
+    return match.group(1)
 
 
 def post(gateway_url: str, api_key: str | None, body: dict) -> dict | None:
@@ -126,11 +129,10 @@ def live_check(gateway_url: str, api_key: str | None) -> None:
     """Send tool requests through the gateway; the responses must be structured."""
     model = model_name()
 
-    # Probe 1: agent-style system prompt — the historical failing shape.
-    # Probe 2: bare user turn with NO system message — the template must still
-    # render the tool preamble, or the model hallucinates tool names.
-    # Probe 3: multi-turn — after a tool result the model must summarise in
-    # prose, not fire another tool call.
+    # Probe 3: multi-turn — a user turn after a tool result must be answered in
+    # prose with no further tool call (reminder still renders, $lastRole=user).
+    # Probe 4: tool-result-final — the exact agent-loop shape the reminder skip
+    # exists for: no reminder must render and the model must summarise.
     probes = [
         (
             "agent system prompt yields structured tool_calls",
@@ -144,6 +146,7 @@ def live_check(gateway_url: str, api_key: str | None) -> None:
                 "tools": [TOOL],
                 "tool_choice": "auto",
             },
+            "tool_call",
         ),
         (
             "bare user turn (no system prompt) yields structured tool_calls",
@@ -154,6 +157,7 @@ def live_check(gateway_url: str, api_key: str | None) -> None:
                 "tools": [TOOL],
                 "tool_choice": "auto",
             },
+            "tool_call",
         ),
         (
             "after a tool result the model answers in prose",
@@ -183,24 +187,54 @@ def live_check(gateway_url: str, api_key: str | None) -> None:
                 "tools": [TOOL],
                 "tool_choice": "auto",
             },
+            "prose",
+        ),
+        (
+            "tool-result-final turn answers in prose without another call",
+            {
+                "model": model,
+                "temperature": 0.1,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": "Check the python version."},
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": "call_2",
+                                "type": "function",
+                                "function": {
+                                    "name": "run_command",
+                                    "arguments": json.dumps({"command": "python --version"}),
+                                },
+                            }
+                        ],
+                    },
+                    {"role": "tool", "tool_call_id": "call_2", "content": "Python 3.14.0"},
+                ],
+                "tools": [TOOL],
+                "tool_choice": "auto",
+            },
+            "prose",
         ),
     ]
 
-    for name, body in probes:
+    for name, body, kind in probes:
         payload = post(gateway_url, api_key, body)
         msg = message(payload)
-        ok, detail = structured_call(msg)
-        if name.startswith("after a tool result"):
+        if kind == "prose":
             prose = (msg.get("content") or "").strip()
-            wants = bool(prose) and "3.14" in prose
-            check(name, wants, "empty content or version not summarised in prose" if not wants else "")
+            wants = bool(prose) and "3.14" in prose and not (msg.get("tool_calls") or [])
+            check(name, wants, "empty/unsummarised prose or another tool call fired" if not wants else "")
             if wants:
                 print(f"      prose: {prose[:80]}")
-            continue
-        check(name, ok, detail)
-        if ok:
-            call = msg["tool_calls"][0]["function"]
-            print(f"      tool: {call['name']}  args: {call['arguments']}")
+        else:
+            ok, detail = structured_call(msg)
+            check(name, ok, detail)
+            if ok:
+                call = msg["tool_calls"][0]["function"]
+                print(f"      tool: {call['name']}  args: {call['arguments']}")
 
 
 def main() -> int:
