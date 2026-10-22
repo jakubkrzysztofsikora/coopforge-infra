@@ -114,7 +114,10 @@ check "the REGISTER stage refuses a missing COOP_SLUG" "$(yesno grep -q 'COOP_SL
 # (e) the engine answers to its gateway route name, never to the tier id: a
 # request the gateway routes as qwen3.6-35b-a3b reaches a box serving
 # --served-model-name qwen3.6-35b-a3b, so the two names have to be the same one.
-unrouted=$(python3 -c 'import json,sys,yaml; tiers=json.load(open(sys.argv[1])); routes={m["model_name"] for m in yaml.safe_load(open(sys.argv[2]))["model_list"]}; print(",".join(k for k,t in tiers.items() if t.get("route") not in routes))' "$TIERS" "$GATEWAY")
+# A tier with "routed": false is not served by the coop gateway yet: the
+# operator Mac Studio tier runs through a different gateway, and a soon tier has
+# no upstream until it is provisioned. Flip the flag when the tier goes live.
+unrouted=$(python3 -c 'import json,sys,yaml; tiers=json.load(open(sys.argv[1])); routes={m["model_name"] for m in yaml.safe_load(open(sys.argv[2]))["model_list"]}; print(",".join(k for k,t in tiers.items() if t.get("routed", True) and t.get("route") not in routes))' "$TIERS" "$GATEWAY")
 check "every manifest tier names a gateway route" "$unrouted" ""
 check "the vLLM unit takes the served name from the manifest route" \
   "$(yesno grep -q -- '--served-model-name @SERVED_MODEL_NAME@' "$ROOT/systemd/vllm.service")" yes
